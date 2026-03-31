@@ -1,55 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyPaymentReceipt, buildPaymentRequired, parseReceiptHeader } from "@/lib/x402";
 
 export async function POST(req: NextRequest) {
-  const { url, mode = "summary" } = await req.json();
-
-  if (!url) {
-    return NextResponse.json({ error: "url is required" }, { status: 400 });
-  }
-
+  const receipt = parseReceiptHeader(req.headers.get("X-Payment-Receipt"));
+  if (!receipt) return buildPaymentRequired("scraper", "Web Scraper", 4);
+  const { valid } = await verifyPaymentReceipt(receipt, 4, "scraper");
+  if (!valid) return buildPaymentRequired("scraper", "Web Scraper", 4);
+  const { url } = await req.json().catch(() => ({ url: "" }));
+  if (!url) return NextResponse.json({ error: "url is required" }, { status: 400 });
   try {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "AgentCart/1.0 (AI Research Agent)",
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
+    const res = await fetch(url, { headers: { "User-Agent": "AgentCart/1.0 (x402 AI Agent)" }, signal: AbortSignal.timeout(8000) });
     const html = await res.text();
-
-    // Strip HTML tags and clean up whitespace
-    const text = html
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 3000); // cap at 3000 chars to keep context manageable
-
-    // Extract title
-    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    const title = titleMatch ? titleMatch[1].trim() : url;
-
-    return NextResponse.json({
-      url,
-      title,
-      content: text,
-      mode,
-      retrievedAt: new Date().toISOString(),
-      _summary: `Scraped "${title}" — ${text.length} characters extracted.`,
-    });
+    const text = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi,"").replace(/<style[^>]*>[\s\S]*?<\/style>/gi,"").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim().slice(0,3000);
+    const title = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim() ?? url;
+    return NextResponse.json({ url, title, content: text, x402: { paid: true, txHash: receipt.txHash }, _summary: `Scraped "${title}" — ${text.length} chars extracted.` });
   } catch {
-    // Fallback mock for URLs that can't be fetched (CORS, auth, etc.)
-    return NextResponse.json({
-      url,
-      title: "Page content (mock)",
-      content: `Mock content for ${url}: This page contains relevant information about the requested topic. In production, the full page text would be extracted and returned here for the agent to analyze.`,
-      mode,
-      retrievedAt: new Date().toISOString(),
-      _summary: `Scraped ${url} — content extracted successfully.`,
-      _mock: true,
-    });
+    return NextResponse.json({ url, content: `Mock content for ${url}`, x402: { paid: true, txHash: receipt.txHash }, _summary: `Scraped ${url} successfully.`, _mock: true });
   }
 }

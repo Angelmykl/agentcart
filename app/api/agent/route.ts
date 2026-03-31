@@ -5,11 +5,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const {
-    task,
-    budgetXlm = 50,
-    userPublicKey = null,
-  } = await req.json();
+  const { task, budgetXlm = 50, userPublicKey = null } = await req.json();
 
   if (!task || typeof task !== "string") {
     return new Response(JSON.stringify({ error: "task is required" }), { status: 400 });
@@ -35,8 +31,9 @@ export async function POST(req: NextRequest) {
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }
